@@ -1,0 +1,119 @@
+networks:
+  local:
+    driver: bridge
+
+services:
+
+  eureka-server:
+    build:
+      context: ./eureka-server/
+      dockerfile: Dockerfile
+    container_name: eureka-server
+    restart: unless-stopped
+    ports:
+      - "8761:8761"
+    networks:
+      - local
+
+  api-gateway:
+    build:
+      context: ./apigateway/
+      dockerfile: Dockerfile
+    container_name: api-gateway
+    depends_on:
+      - eureka-server
+    environment:
+      - EUREKA_HOST=eureka-server
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    networks:
+      - local
+
+  app-east:
+    build:
+      context: ./java-resilience4j-lab/
+      dockerfile: Dockerfile
+#    image: pedroappel/lab-java4j:v1726954682
+    container_name: app-east
+    depends_on:
+      - eureka-server
+    environment:
+      - EUREKA_HOST=eureka-server
+    restart: unless-stopped
+    networks:
+      - local
+    healthcheck:
+      test: "curl -sS http://app-east:8080/actuator/health"
+      interval: 1s
+      timeout: 30s
+      retries: 60
+    ports:
+      - "8080:8080"
+
+  app-west:
+    build:
+      context: ./java-resilience4j-lab/
+      dockerfile: Dockerfile
+#    image: pedroappel/lab-java4j:v1726954682
+    container_name: app-west
+    environment:
+      - EUREKA_HOST=eureka-server
+    restart: unless-stopped
+    networks:
+      - local
+    healthcheck:
+      test: "curl -sS http://app-west:8080/actuator/health"
+      interval: 1s
+      timeout: 30s
+      retries: 60
+    ports:
+      - "8081:8080"
+  
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - .extras/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      - .extras/prometheus/prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--web.enable-lifecycle'
+    ports:
+      - "9090:9090"
+    networks:
+      - local
+    user: root
+
+  client:
+    depends_on:
+      - app-west
+      - app-east
+    build:
+      args:
+        - APP_SERVER=api-gateway:8888
+      context: extras/client/
+      dockerfile: Dockerfile
+    image: client
+    container_name: client
+    restart: unless-stopped
+    networks:
+      - local
+  
+  grafana:
+    build:
+      context: extras/grafana/
+      dockerfile: Dockerfile
+    depends_on:
+      - prometheus
+      - client
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    networks:
+      - local
