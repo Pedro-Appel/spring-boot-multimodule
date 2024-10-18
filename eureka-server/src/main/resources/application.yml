@@ -1,6 +1,8 @@
 server:
   port: 8761
 
+logging.level.root: ${LOG_LEVEL}
+
 eureka:
   instance:
     hostname: localhost
